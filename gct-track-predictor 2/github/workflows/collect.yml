@@ -1,0 +1,53 @@
+name: Collect tracks & publish site
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'    # every 5 min (GitHub may run it a few minutes late)
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths-ignore: ['data/**', 'site/data/**']
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Poll Metro-North feed (~4 min, every 30 s)
+        run: node collector/collect.js
+        env:
+          DURATION: ${{ github.event_name == 'schedule' && '240' || '0' }}
+
+      - name: Save history
+        run: |
+          git config user.name "gct-track-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data site/data
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Track log $(TZ=America/New_York date '+%Y-%m-%d %H:%M')"
+          for i in 1 2 3; do git pull --rebase -X theirs origin main && git push && break; sleep 5; done
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
