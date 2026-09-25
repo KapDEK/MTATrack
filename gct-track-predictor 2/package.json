@@ -1,0 +1,8 @@
+{
+  "name": "gct-track-predictor",
+  "version": "2.0.0",
+  "description": "Predicted departure tracks for Metro-North trains at Grand Central Terminal",
+  "scripts": { "collect": "node collector/collect.js", "demo": "DEMO=1 node collector/collect.js" },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

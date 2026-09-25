@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GCT Track Predictor</title>
+<meta name="description" content="Predicted departure tracks for Metro-North trains at Grand Central Terminal">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23c9a24a'/><path d='M16 8v8l5 3' stroke='%23111' stroke-width='3' fill='none' stroke-linecap='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f4f1ea; --panel: #ffffff; --ink: #1b1a17; --muted: #6d675c; --line: #e3ddd0;
+  --gold: #a57f22; --gold-soft: #f3e8c9; --ok: #1d7a46; --warn: #b3541e; --bad: #b3261e;
+  --bar: #ece6d8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f12; --panel: #15181d; --ink: #f1ede4; --muted: #948d80; --line: #262a31;
+    --gold: #e0b75a; --gold-soft: #2d2616; --ok: #4cc47f; --warn: #ec9a58; --bad: #f07167; --bar: #22262d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0f12; --panel: #15181d; --ink: #f1ede4; --muted: #948d80; --line: #262a31;
+  --gold: #e0b75a; --gold-soft: #2d2616; --ok: #4cc47f; --warn: #ec9a58; --bad: #f07167; --bar: #22262d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 Inter, system-ui, sans-serif; }
+.mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+h1 { font-size: 26px; margin: 0; letter-spacing: -0.02em; }
+h1 span { color: var(--gold); }
+.sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.clock { font-size: 30px; font-weight: 700; color: var(--gold); text-align: right; }
+.feed { font-size: 12px; color: var(--muted); text-align: right; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
+.dot.off { background: var(--bad); }
+.banner { background: var(--gold-soft); border: 1px solid var(--gold); color: var(--ink); padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 14px; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.chip { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 12px; border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.chip[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+input[type=search] { flex: 1; min-width: 160px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; }
+.board { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.row { display: grid; grid-template-columns: 86px 64px 1fr 190px 96px; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+.row:first-child { border-top: 0; }
+.row.head { cursor: default; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding-top: 10px; padding-bottom: 10px; }
+.row:not(.head):hover { background: color-mix(in srgb, var(--gold-soft) 45%, transparent); }
+.time { font-size: 18px; font-weight: 700; }
+.time small { display: block; font-size: 12px; font-weight: 500; color: var(--warn); }
+.train { color: var(--muted); }
+.dest { font-weight: 600; font-size: 16px; display: flex; flex-direction: column; }
+.dest .line { font-weight: 500; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dest .line i { width: 18px; height: 4px; border-radius: 2px; display: inline-block; }
+.trk { display: flex; align-items: center; gap: 10px; }
+.trk .num { font-size: 26px; font-weight: 700; min-width: 54px; text-align: center; border-radius: 8px; padding: 2px 6px; }
+.trk .num.live { background: var(--gold); color: var(--bg); }
+.trk .num.pred { border: 2px dashed var(--gold); color: var(--gold); }
+.trk .meta { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.trk .meta b { color: var(--ink); font-weight: 600; }
+.conf-high { color: var(--ok) !important; } .conf-medium { color: var(--gold) !important; } .conf-low { color: var(--muted) !important; }
+.status { font-size: 13px; font-weight: 600; text-align: right; }
+.status.late { color: var(--warn); } .status.bad { color: var(--bad); } .status.boarding { color: var(--ok); }
+.detail { grid-column: 1 / -1; padding: 6px 0 4px; cursor: default; }
+.bars { display: grid; gap: 6px; margin: 8px 0 12px; max-width: 520px; }
+.bar { display: grid; grid-template-columns: 84px 1fr 44px; white-space: nowrap; gap: 10px; align-items: center; font-size: 13px; }
+.bar .t { background: var(--bar); height: 12px; border-radius: 6px; overflow: hidden; }
+.bar .t div { height: 100%; background: var(--gold); border-radius: 6px; }
+.recent { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.recent span { border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; color: var(--muted); }
+.recent span b { color: var(--ink); }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+footer { margin-top: 18px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); }
+footer a { color: var(--gold); }
+.legend { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.legend .num { font-size: 12px; padding: 1px 6px; border-radius: 5px; font-weight: 700; }
+@media (max-width: 720px) {
+  .row.head { display: none; }
+  .row { grid-template-columns: 68px 1fr auto; grid-template-areas: "time dest trk" "train status trk"; row-gap: 2px; }
+  .time { grid-area: time; font-size: 16px; } .train { grid-area: train; font-size: 12px; }
+  .dest { grid-area: dest; font-size: 15px; } .trk { grid-area: trk; flex-direction: column; gap: 2px; align-items: flex-end; }
+  .trk .meta { text-align: right; } .status { grid-area: status; text-align: left; font-size: 12px; }
+  .clock { font-size: 22px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Grand Central <span>Track Predictor</span></h1>
+      <div class="sub">Metro-North departures, with a best guess at the track before it's posted.</div>
+    </div>
+    <div>
+      <div class="clock mono" id="clock">--:--</div>
+      <div class="feed" id="feed"><span class="dot off"></span>connecting…</div>
+    </div>
+  </header>
+  <div id="banner"></div>
+  <div class="controls" id="controls">
+    <input type="search" id="q" placeholder="Train # or destination" aria-label="Search trains">
+  </div>
+  <div class="board" id="board"><div class="empty">Loading departures…</div></div>
+  <footer>
+    <div class="legend">
+      <span><span class="num mono" style="background:var(--gold);color:var(--bg)">27</span> posted track</span>
+      <span><span class="num mono" style="border:2px dashed var(--gold);color:var(--gold)">27</span> prediction</span>
+      <span>Upper level: 11–42 · Lower level: 100–117</span>
+    </div>
+    <div id="stats"></div>
+  </footer>
+</div>
+<script src="lib/gtfsrt.js"></script>
+<script src="lib/predict.js"></script>
+<script>
+const MTA_FEED = 'https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/mnr%2Fgtfs-mnr';
+const $ = (s) => document.querySelector(s);
+const state = { snap: null, model: null, live: null, liveOk: null, line: 'All', q: '', open: new Set() };
+try { state.line = localStorage.getItem('gct-line') || 'All'; } catch {}
+
+const fmt = (ms) => new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M/, (m) => m.trim().toLowerCase()[0]);
+setInterval(() => ($('#clock').textContent = new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit' })), 1000);
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// Link to the history CSVs in the GitHub repo that hosts this page (owner.github.io/repo)
+const repoUrl = (() => {
+  const m = location.hostname.match(/^([\w-]+)\.github\.io$/);
+  return m ? `https://github.com/${m[1]}/${location.pathname.split('/')[1] || m[1] + '.github.io'}` : null;
+})();
+
+// Departures = the last snapshot from the collector, updated with the live MTA feed when the browser can reach it
+function departures() {
+  if (!state.snap) return [];
+  const now = Date.now();
+  return state.snap.departures.map((d) => {
+    const l = state.live && state.live.get(d.tripId);
+    const x = l ? { ...d, ...l, track: l.track || d.track } : { ...d };
+    x.prediction = x.track ? null : Predict.predict(state.model, x);
+    return x;
+  }).filter((d) => d.estimated > now - 60000);
+}
+
+function trackCell(d) {
+  if (d.track) return `<div class="trk"><div class="num mono live">${esc(d.track)}</div><div class="meta"><b>Posted</b><br>${Predict.isUpper(d.track) ? 'Upper' : 'Lower'} level</div></div>`;
+  const p = d.prediction;
+  if (!p || !p.tracks.length) return `<div class="trk"><div class="num mono pred" style="opacity:.4">?</div><div class="meta">Not enough<br>history yet</div></div>`;
+  const [top, ...rest] = p.tracks;
+  const alts = rest.slice(0, 2).map((t) => `${esc(t.track)} ${t.pct}%`).join(' · ');
+  const lvl = p.upper >= 50 ? `Upper ${p.upper}%` : `Lower ${100 - p.upper}%`;
+  return `<div class="trk"><div class="num mono pred">${esc(top.track)}</div><div class="meta"><b class="conf-${p.confidence}">${top.pct}% likely</b><br>${alts ? 'or ' + alts : lvl}</div></div>`;
+}
+
+function statusCell(d) {
+  if (d.status === 'Cancelled') return `<div class="status bad">Cancelled</div>`;
+  const mins = Math.round((d.estimated - Date.now()) / 60000);
+  if (d.delayMin > 0) return `<div class="status late">${d.delayMin} min late</div>`;
+  if (d.track && mins <= 15) return `<div class="status boarding">${mins <= 0 ? 'Departing' : 'Boarding'}</div>`;
+  return `<div class="status" style="color:var(--muted);font-weight:500">${mins <= 0 ? 'Now' : mins < 60 ? mins + ' min' : 'On time'}</div>`;
+}
+
+const basisText = { train: 'this train on past', 'train+similar': 'this train + similar departures on', similar: 'similar departures (same line, ±30 min) on', line: 'all trains on this line over', schedule: 'the published schedule' };
+
+function detail(d) {
+  const p = d.prediction, recent = (state.model?.recent || {})[d.train] || [];
+  let html = '<div class="detail">';
+  if (p && p.tracks.length) {
+    html += `<div style="font-size:12px;color:var(--muted)">Based on ${basisText[p.basis] || ''} ${p.basis === 'schedule' ? '' : p.samples + (p.basis === 'line' ? ' logged departures' : p.samples === 1 ? ' day' : ' days')}${p.upper != null ? ` · ${p.upper}% upper level` : ''}</div>`;
+    html += '<div class="bars">' + p.tracks.map((t) => `<div class="bar"><span class="mono">Track ${esc(t.track)}</span><div class="t"><div style="width:${t.pct}%"></div></div><span class="mono">${t.pct}%</span></div>`).join('') + '</div>';
+  }
+  html += !recent.length ? `<div style="font-size:12px;color:var(--muted)">No logged history for train ${esc(d.train)} yet.</div>`
+    : `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Recent tracks for train ${esc(d.train)}</div><div class="recent">` +
+      recent.map(([day, t]) => `<span>${new Date(day + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} <b class="mono">${esc(t)}</b></span>`).join('') + '</div>';
+  return html + '</div>';
+}
+
+function toggle(train) { state.open.has(train) ? state.open.delete(train) : state.open.add(train); render(); }
+
+function renderControls(list) {
+  const lines = ['All', ...new Set(list.map((d) => d.route))];
+  if (!lines.includes(state.line)) lines.push(state.line);
+  const colors = Object.fromEntries(list.map((d) => [d.route, d.color]));
+  $('#controls').querySelectorAll('.chip').forEach((c) => c.remove());
+  $('#q').insertAdjacentHTML('beforebegin', lines.map((l) => `<button class="chip" aria-pressed="${state.line === l}" data-line="${esc(l)}">${l !== 'All' && colors[l] ? `<i style="background:${esc(colors[l])}"></i>` : ''}${esc(l)}</button>`).join(''));
+}
+
+function render() {
+  const snap = state.snap; if (!snap) return;
+  const list = departures();
+  const age = Math.round((Date.now() - snap.generated) / 60000);
+  let feed;
+  if (snap.demo) feed = `<span class="dot"></span>Demo data · updated ${fmt(snap.generated)}`;
+  else if (state.liveOk) feed = `<span class="dot"></span>Live from MTA · ${fmt(state.liveAt)}`;
+  else if (!snap.feed.ok) feed = `<span class="dot off"></span>MTA feed unavailable at last check${snap.feed.error ? ' — ' + esc(snap.feed.error) : ''}`;
+  else feed = `<span class="dot ${age > 20 ? 'off' : ''}"></span>Updated ${age < 1 ? 'just now' : age + ' min ago'} (${fmt(snap.generated)})`;
+  $('#feed').innerHTML = feed;
+  const days = state.model?.stats?.days || 0;
+  $('#banner').innerHTML = snap.demo ? '<div class="banner"><b>Demo mode</b> — synthetic trains and history. The real site fills in once the collector runs on GitHub.</div>'
+    : days < 14 ? `<div class="banner"><b>Still learning.</b> Predictions come from tracks this site has logged itself — ${days} day${days === 1 ? '' : 's'} so far. They get noticeably better after about two weeks.</div>` : '';
+  renderControls(list);
+  const q = state.q.toLowerCase();
+  const rows = list.filter((d) => (state.line === 'All' || d.route === state.line) && (!q || d.train.toLowerCase().includes(q) || d.dest.toLowerCase().includes(q)));
+  const head = '<div class="row head"><div>Time</div><div>Train</div><div>Destination</div><div>Track</div><div style="text-align:right">Status</div></div>';
+  $('#board').innerHTML = rows.length ? head + rows.map((d) => `
+    <div class="row" data-train="${esc(d.train)}" role="button" tabindex="0" aria-expanded="${state.open.has(d.train)}">
+      <div class="time mono">${fmt(d.scheduled)}${d.delayMin > 0 ? `<small>est ${fmt(d.estimated)}</small>` : ''}</div>
+      <div class="train mono">#${esc(d.train)}</div>
+      <div class="dest">${esc(d.dest)}<span class="line"><i style="background:${esc(d.color || 'var(--muted)')}"></i>${esc(d.route)}</span></div>
+      ${trackCell(d)}
+      ${statusCell(d)}
+      ${state.open.has(d.train) ? detail(d) : ''}
+    </div>`).join('') : `<div class="empty">${snap.departures.length ? 'No departures match.' : 'No departures in the latest update.'}</div>`;
+  const s = state.model?.stats;
+  $('#stats').innerHTML = s ? `Learned from ${s.records.toLocaleString()} departures over ${s.days} days${s.medianLead ? ` · tracks usually posted ~${s.medianLead} min before` : ''}${repoUrl ? ` · <a href="${repoUrl}/tree/main/data/history">History data</a>` : ''}` : '';
+}
+
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (chip) { state.line = chip.dataset.line; try { localStorage.setItem('gct-line', state.line); } catch {} return render(); }
+  const row = e.target.closest('.row[data-train]');
+  if (row && !e.target.closest('.detail')) toggle(row.dataset.train);
+});
+document.addEventListener('keydown', (e) => { const row = e.target.closest?.('.row[data-train]'); if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(row.dataset.train); } });
+$('#q').addEventListener('input', (e) => { state.q = e.target.value; render(); });
+
+async function loadSnapshot() {
+  try {
+    const [snap, model] = await Promise.all(['data/departures.json', 'data/model.json'].map((u) => fetch(u + '?t=' + Date.now()).then((r) => r.json())));
+    state.snap = snap; state.model = model; render();
+  } catch { $('#feed').innerHTML = '<span class="dot off"></span>Waiting for the first data update…'; }
+}
+
+// If the MTA allows it from the browser, pull the feed directly for up-to-the-second tracks.
+async function loadLive() {
+  if ((state.liveFails || 0) >= 3 || !state.snap || state.snap.demo) return;
+  try {
+    const res = await fetch(MTA_FEED, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw 0;
+    const feed = GTFSRT.parseFeed(new Uint8Array(await res.arrayBuffer()));
+    const m = new Map();
+    for (const t of feed.trips) {
+      const f = t.stops[0];
+      if (!f || f.stopId !== state.snap.gctId) continue;
+      const ev = f.departure || f.arrival;
+      const u = { track: f.track || null, status: t.scheduleRelationship === 3 || f.scheduleRelationship === 1 ? 'Cancelled' : f.trainStatus || null };
+      if (ev && ev.time) { u.estimated = ev.time * 1000; u.delayMin = Math.round((ev.delay || 0) / 60); }
+      m.set(t.tripId, u);
+    }
+    state.live = m; state.liveOk = true; state.liveFails = 0; state.liveAt = Date.now(); render();
+  } catch { state.liveOk = false; state.liveFails = (state.liveFails || 0) + 1; render(); }   // blocked by the browser (CORS) → snapshot only
+}
+
+loadSnapshot().then(loadLive);
+setInterval(loadSnapshot, 60000);
+setInterval(loadLive, 30000);
+setInterval(render, 15000);
+</script>
+</body>
+</html>
